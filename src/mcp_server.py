@@ -16,6 +16,9 @@ import shutil
 import subprocess
 import time
 import glob
+import threading
+import signal
+import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from pathlib import Path
@@ -35,6 +38,14 @@ class DevSafetyMCP:
         self.session_manager = SessionManager(self.config_dir)
         self.ensure_config_dir()
         self.register_tools()
+        
+        # MONITORING ENHANCEMENT: Initialize status monitoring
+        self.monitoring_active = False
+        self.monitoring_thread = None
+        self.server_pid = os.getpid()
+        self.startup_time = datetime.now()
+        self.status_lock = threading.Lock()  # Prevent concurrent file writes
+        self.start_status_monitoring()
         
     def ensure_config_dir(self):
         """Create config directory if it doesn't exist"""
@@ -381,6 +392,54 @@ class DevSafetyMCP:
                     "error": str(e)
                 }
 
+        @self.server.tool("check_mcp_status")
+        async def check_mcp_status() -> Dict[str, Any]:
+            """
+            Check the current status of the MCP server monitoring system
+            
+            Returns status file information and server health data.
+            """
+            try:
+                config_path = os.path.expanduser(self.config_dir)
+                status_file = os.path.join(config_path, "mcp_status.json")
+                
+                if not os.path.exists(status_file):
+                    return {
+                        "status": "no_status_file",
+                        "message": "Status file not found - monitoring may not be active"
+                    }
+                
+                with open(status_file, 'r') as f:
+                    status_data = json.load(f)
+                
+                # Calculate how long ago the last heartbeat was
+                try:
+                    last_heartbeat = datetime.fromisoformat(status_data['last_heartbeat'])
+                    time_since_heartbeat = (datetime.now() - last_heartbeat).total_seconds()
+                    status_data['seconds_since_heartbeat'] = int(time_since_heartbeat)
+                    
+                    if time_since_heartbeat > 60:
+                        status_data['health'] = "warning"
+                        status_data['health_message'] = f"Last heartbeat was {int(time_since_heartbeat)}s ago"
+                    else:
+                        status_data['health'] = "healthy"
+                        status_data['health_message'] = "Recent heartbeat detected"
+                        
+                except Exception:
+                    status_data['health'] = "unknown"
+                    status_data['health_message'] = "Could not parse heartbeat time"
+                
+                return {
+                    "status": "success",
+                    "monitoring_data": status_data
+                }
+                
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "error": str(e)
+                }
+
     def _auto_commit_changes(self, sandbox_path: str, commit_message: str) -> Dict[str, Any]:
         """
         CRITICAL SAFETY METHOD: Auto-commit all changes in sandbox
@@ -451,17 +510,163 @@ class DevSafetyMCP:
                 "error": f"Auto-commit failed: {e}"
             }
 
+    def start_status_monitoring(self):
+        """
+        CRITICAL MONITORING FEATURE: Start status file monitoring
+        
+        Creates heartbeat file every 30 seconds to enable external monitoring.
+        Provides startup notification and continuous health status.
+        """
+        try:
+            # Create initial status file
+            self.write_status_file("starting", "MCP server initializing...")
+            
+            # Show startup notification  
+            self.show_startup_notification()
+            
+            # Start background monitoring thread with a small delay
+            self.monitoring_active = True
+            self.monitoring_thread = threading.Thread(
+                target=self._monitoring_loop, 
+                daemon=True
+            )
+            self.monitoring_thread.start()
+            
+            # Small delay to let the monitoring thread initialize
+            time.sleep(0.1)
+            
+            # Update status to active
+            self.write_status_file("active", "MCP server running normally")
+            
+            print("[OK] Dev-Safety MCP: Status monitoring started")
+            
+        except Exception as e:
+            print(f"[WARNING] Dev-Safety MCP: Monitoring failed to start: {e}")
+
+    def write_status_file(self, status: str, message: str = ""):
+        """Write current status to monitoring file with atomic write and thread safety"""
+        with self.status_lock:  # Ensure only one thread writes at a time
+            try:
+                config_path = os.path.expanduser(self.config_dir)
+                status_file = os.path.join(config_path, "mcp_status.json")
+                temp_file = status_file + ".tmp"
+                
+                status_data = {
+                    "status": status,
+                    "last_heartbeat": datetime.now().isoformat(),
+                    "server_pid": self.server_pid,
+                    "startup_time": self.startup_time.isoformat(),
+                    "tools_registered": 7,  # Updated: now includes check_mcp_status
+                    "version": "0.2.0",
+                    "message": message,
+                    "config_dir": config_path
+                }
+                
+                # Write to temporary file first, then rename (atomic operation)
+                with open(temp_file, 'w') as f:
+                    json.dump(status_data, f, indent=2)
+                
+                # Atomic rename
+                os.replace(temp_file, status_file)
+                    
+            except Exception as e:
+                # Don't fail the server if status writing fails
+                print(f"Warning: Could not write status file: {e}")
+                # Clean up temp file if it exists
+                try:
+                    temp_file = os.path.join(os.path.expanduser(self.config_dir), "mcp_status.json.tmp")
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                except:
+                    pass
+
+    def show_startup_notification(self):
+        """Show startup notification to user"""
+        try:
+            startup_msg = f"""
+================================================================================
+*** Development Safety MCP Server Started ***
+================================================================================
+[OK] Status: Active
+[PID] Process ID: {self.server_pid}
+[TIME] Started: {self.startup_time.strftime('%Y-%m-%d %H:%M:%S')}
+[TOOLS] Tools: 7 registered (sandbox, session, activity, sync, commit, status)
+[CONFIG] Config: {os.path.expanduser(self.config_dir)}
+
+*** Your development is now protected! ***
+================================================================================
+"""
+            print(startup_msg)
+            
+            # Try to show desktop notification (optional - requires plyer)
+            try:
+                import plyer
+                plyer.notification.notify(
+                    title="Dev-Safety MCP Started",
+                    message=f"MCP server active (PID: {self.server_pid})",
+                    timeout=5
+                )
+            except ImportError:
+                # plyer not installed - that's fine, console notification is enough
+                pass
+            except Exception:
+                # Notification failed - that's fine too
+                pass
+                
+        except Exception as e:
+            print(f"Note: Startup notification error: {e}")
+
+    def _monitoring_loop(self):
+        """Background thread for continuous status monitoring"""
+        while self.monitoring_active:
+            try:
+                # Update heartbeat every 30 seconds
+                self.write_status_file("active", "Heartbeat - server running normally")
+                time.sleep(30)
+            except Exception as e:
+                print(f"Monitoring loop error: {e}")
+                time.sleep(30)  # Continue monitoring even if one update fails
+
+    def stop_monitoring(self):
+        """Stop the status monitoring (called on shutdown)"""
+        try:
+            self.monitoring_active = False
+            self.write_status_file("stopping", "MCP server shutting down...")
+            
+            if self.monitoring_thread and self.monitoring_thread.is_alive():
+                self.monitoring_thread.join(timeout=2)
+                
+            print("[STOP] Dev-Safety MCP: Status monitoring stopped")
+            
+        except Exception as e:
+            print(f"Note: Monitoring cleanup error: {e}")
+
     async def run_server(self, host: str = "localhost", port: int = 8000):
-        """Run the MCP server"""
-        await self.server.run(host=host, port=port)
+        """Run the MCP server with proper shutdown handling"""
+        try:
+            await self.server.run(host=host, port=port)
+        finally:
+            self.stop_monitoring()
 
 
 async def main():
     """Main entry point for stdio MCP server"""
     server = DevSafetyMCP()
     
-    # Use FastMCP's built-in stdio support
-    await server.server.run_stdio_async()
+    def signal_handler(signum, frame):
+        """Handle shutdown signals gracefully"""
+        print(f"\n[SIGNAL] Received signal {signum}, shutting down...")
+        server.stop_monitoring()
+        
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        # Use FastMCP's built-in stdio support
+        await server.server.run_stdio_async()
+    finally:
+        server.stop_monitoring()
 
 
 if __name__ == "__main__":

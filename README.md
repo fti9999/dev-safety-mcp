@@ -19,7 +19,7 @@ Create an MCP server that provides "pick up exactly where you left off" + "never
 
 ```bash
 # Clone the repository
-git clone https://github.com/fti9999/dev-safety-mcp.git
+git clone <repository-url>
 cd dev-safety-mcp
 
 # Install dependencies
@@ -100,6 +100,21 @@ Safely copies approved changes from sandbox to main project.
 - `main_path` (str): Destination main project path  
 - `files` (List[str], optional): Specific files to sync (default: all changed files)
 
+### `commit_progress`
+Manually commit current progress to prevent work loss.
+
+**Parameters:**
+- `sandbox_path` (str): Path to the sandbox
+- `message` (str, optional): Commit message describing progress
+
+### `check_mcp_status`
+**NEW**: Check the health and status of the MCP server monitoring system.
+
+**Returns:**
+- Server status and heartbeat information
+- Process ID and startup time
+- Health warnings if server appears down
+
 ## 📁 Project Structure
 
 ```bash
@@ -139,6 +154,33 @@ dev-safety-mcp/
 - **Automatic Backups**: Backups created before any sync operations
 - **Activity Monitoring**: Suggests saving state during periods of inactivity
 - **Version Control**: Git branching used in sandboxes for change tracking
+- **Server Health Monitoring**: Built-in status monitoring with heartbeat files
+- **External Status Checking**: Standalone script to verify MCP server health
+
+## 📊 Server Monitoring
+
+The dev-safety MCP server includes built-in monitoring to detect when the server goes down, ensuring you never lose protection without knowing.
+
+### **Status Monitoring Features:**
+- **Automatic heartbeat files** - Updates every 30 seconds
+- **Startup notifications** - Clear indication when server starts
+- **External status checker** - Standalone monitoring script
+- **Health warnings** - Alerts when server appears down
+
+### **Using the External Status Checker:**
+```bash
+# Check if MCP server is running
+python tools/check-mcp-status.py
+
+# Example outputs:
+# ✅ MCP server is ACTIVE (last seen: 15s ago)
+# 🔴 MCP server appears DOWN ⚠️ (last seen: 5m ago)
+```
+
+### **Status File Location:**
+- **File**: `~/.dev-safety/mcp_status.json`
+- **Updates**: Every 30 seconds while server is running
+- **Content**: PID, startup time, tool count, health status
 
 ## 🧪 Testing
 
