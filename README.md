@@ -19,7 +19,7 @@ Create an MCP server that provides "pick up exactly where you left off" + "never
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/fti9999/dev-safety-mcp.git
 cd dev-safety-mcp
 
 # Install dependencies
