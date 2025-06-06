@@ -1,0 +1,35 @@
+{
+  "project_types": {
+    "react": {
+      "file_patterns": ["*.js", "*.jsx", "*.ts", "*.tsx", "*.json", "*.css", "*.scss"],
+      "ignore_patterns": ["node_modules/**", "build/**", "dist/**", ".git/**"],
+      "activity_threshold_minutes": 15,
+      "auto_save_interval_minutes": 30
+    },
+    "python": {
+      "file_patterns": ["*.py", "*.pyx", "*.pyi", "*.json", "*.yaml", "*.yml", "*.toml"],
+      "ignore_patterns": ["__pycache__/**", "*.pyc", ".venv/**", "venv/**", ".git/**"],
+      "activity_threshold_minutes": 15,
+      "auto_save_interval_minutes": 30
+    },
+    "node": {
+      "file_patterns": ["*.js", "*.mjs", "*.ts", "*.json", "*.md"],
+      "ignore_patterns": ["node_modules/**", "dist/**", ".git/**"],
+      "activity_threshold_minutes": 15,
+      "auto_save_interval_minutes": 30
+    },
+    "generic": {
+      "file_patterns": ["*.*"],
+      "ignore_patterns": [".git/**", "node_modules/**", "__pycache__/**"],
+      "activity_threshold_minutes": 20,
+      "auto_save_interval_minutes": 45
+    }
+  },
+  "default_settings": {
+    "sandbox_naming_pattern": "session-{timestamp}",
+    "session_file_name": ".dev-safety-session.json",
+    "backup_before_sync": true,
+    "git_branch_prefix": "sandbox/",
+    "max_session_history": 10
+  }
+}
